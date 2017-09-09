@@ -1,0 +1,143 @@
+var arrayOfRows = []; // array containing indices of rows to be moved
+var timeFrame = 2;
+// var timeFrame = 72;    // timeFrame to be specified
+var ss = SpreadsheetApp.getActiveSpreadsheet();
+
+// Function that creates the hourly trigger that runs all of this code
+function createTrigger() {
+  ScriptApp.newTrigger("checkLeads")
+    .timeBased()
+    .everyHours(1)
+    // .everyMinutes(1) -- for testing purposes
+    .create();
+}
+
+// checkLeads() goes through the Leads sheet and controls when rows are getting moved between sheets
+function checkLeads() {
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Leads');
+  var selection = sheet.getDataRange();
+  var rows = selection.getNumRows();
+  var colResponse = 13; // or sheet.getLastColumn();
+  
+  // sort the sheet by column J (by descending priority)
+  sheet.sort(10, false);
+  
+  // looping through the rows of the sheet
+  for (var index = 1; index <= rows; index++) {
+  
+    // if they haven't responded yet
+    if (selection.getCell(index, colResponse).getValue().trim().toUpperCase() == 'N') {
+      if (sheet.getRange(index, colResponse + 1).isBlank())
+        sheet.getRange(index, colResponse + 1).setValue(1);
+      else if (sheet.getRange(index, colResponse + 1).getValue() == ("Adding to Follow-up Sheet"))
+          continue;
+      else if (sheet.getRange(index, colResponse + 1).getValue() == timeFrame) {
+        sheet.getRange(index, colResponse + 1).setValue("Adding to Follow-up Sheet");
+        arrayOfRows.push(index);
+      }
+      else
+        sheet.getRange(index, colResponse + 1).setValue(sheet.getRange(index, colResponse + 1).getValue() + 1);
+    }
+    
+    // if they have responded
+    else if (selection.getCell(index, colResponse).getValue().trim().toUpperCase() == 'Y' && (selection.getCell(index, colResponse + 1).getValue() != 'Y')) {
+      sheet.getRange(index, colResponse + 1).setValue('Y');
+      addToSheet(ss, sheet, index, 10, "Has responded");
+      // addToSheet(ss, sheet, index, numColumns, "Has responded");
+    }
+  }
+  
+  // only move rows to follow-up sheet when array isn't empty
+  if (arrayOfRows.length != 0)
+    moveRows(arrayOfRows);
+  
+  // check if anything in the follow up sheet has changed response
+  checkFollowUp();
+  
+  // check if anything in the 'has responded' is ready to be monetized
+  checkHasResponded();
+  
+  //check if deals in the 'monetize' sheet have been closed
+  checkMonetize();
+}
+
+
+// Check the follow up sheet and move rows to the "Has responded" sheet appropriately
+function checkFollowUp() {
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Needs follow-up email');
+  var selection = sheet.getDataRange();
+  var rows = selection.getNumRows();
+  var colResponse = 10;
+  
+  for (var index = 1; index <= rows; index++) {
+    if (selection.getCell(index, colResponse).getValue().trim().toUpperCase() == 'Y') {
+      addToSheet(ss, sheet, index, 8, "Has responded");
+      selection.getCell(index, colResponse).setValue("Yes and transferred to Has Responded sheet.");
+    }
+  }
+}
+
+// Check the 'Has Responded' sheet and move rows to the 'Monetize' sheet appropriately
+function checkHasResponded() {
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Has Responded');
+  var selection = sheet.getDataRange();
+  var rows = selection.getNumRows();
+  var colResponse = 11;
+  
+  for (var index = 1; index <= rows; index++) {
+    if (selection.getCell(index, colResponse).getValue().trim().toUpperCase() == 'Y') {
+      addToSheet(ss, sheet, index, 8, "Monetize");
+      selection.getCell(index, colResponse).setValue("Yes and transferred to Monetize sheet.");
+     
+    }
+  }
+}
+
+// Check the 'Monetize' sheet and move rows to the 'Follow Up: Satisfaction' sheet appropriately
+function checkMonetize() {
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Monetize');
+  var selection = sheet.getDataRange();
+  var rows = selection.getNumRows();
+  var colResponse = 12;
+  var timestampCell = 9;
+  var targetSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Follow Up: Satisfaction');
+  var selection2 = targetSheet.getDataRange();
+  
+  for (var index = 1; index <= rows; index++) {
+    if (selection.getCell(index, colResponse).getValue().trim().toUpperCase() == 'Y') {
+   //   Logger.log("In this if");
+      addToSheet(ss, sheet, index, colResponse, "Follow Up: Satisfaction");
+      selection.getCell(index, colResponse).setValue("Yes and transferred to Follow Up: Satisfaction sheet.");
+      targetSheet.getRange(targetSheet.getLastRow(), timestampCell).setValue(new Date());
+    }
+  }
+}
+
+
+// When time window has passed, move rows from "Lead" sheet to "Needs follow-up" email sheet
+function moveRows(arr) {
+  // var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Leads');
+  var numColumns = sheet.getLastColumn();
+  
+  for (var i = 0; i < arr.length; i++) {
+    addToSheet(ss, sheet, arr[i], 10, "Needs follow-up email");
+  }
+}
+
+// Helper function that takes care of moving rows in between sheets
+function addToSheet(ss, sheet, index, numColumns, sheetName) {
+  var rowToMove = sheet.getRange(index, 1, 1, numColumns);
+  var targetSheet = ss.getSheetByName(sheetName);
+  var target = targetSheet.getRange(targetSheet.getLastRow() + 1, 1);
+  sheet.getRange(index, 1, 1, numColumns).copyTo(target);
+  targetSheet.getRange(targetSheet.getLastRow(), numColumns).clearContent();
+  targetSheet.getRange(targetSheet.getLastRow(), numColumns - 1).clearContent();
+}
+
+// optional function to clear out triggers set up by createTrigger()
+function deleteTrigger() {
+  var allTriggers = ScriptApp.getProjectTriggers();
+  for (var i = 0; i < allTriggers.length; i++)
+      ScriptApp.deleteTrigger(allTriggers[i]);
+}
